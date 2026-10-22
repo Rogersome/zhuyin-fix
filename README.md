@@ -95,6 +95,8 @@ $ python zhuyin_fix.py --interactive
 
 ## 授權
 
-詞庫資料來自 [McBopomofo 小麥注音輸入法](https://github.com/openvanilla/McBopomofo)
+程式碼採 MIT License，見 `LICENSE`。
+
+詞庫資料（`zhuyin_dict.json`）來自 [McBopomofo 小麥注音輸入法](https://github.com/openvanilla/McBopomofo)
 （MIT License, Copyright (c) 2011-2026 Mengjuei Hsieh et al.），
 完整授權條款見 `LICENSE-McBopomofo.txt`。
