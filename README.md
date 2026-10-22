@@ -16,11 +16,29 @@ $ python zhuyin_fix.py --text "我朋友叫eji ru8 u/3, she is nice"
 我朋友叫郭佳穎, she is nice
 ```
 
+## Windows 快捷鍵工具（實驗性）
+
+在任何程式（LINE、Discord、Word、瀏覽器⋯⋯）選取亂碼，按 **Ctrl+Shift+Z**，
+游標旁會跳出候選視窗，選好後直接替換原本的文字。
+
+```
+python zhuyin_hotkey.py      # 開著主控台視窗就會生效，關掉即結束
+pythonw zhuyin_hotkey.py     # 在背景執行，不顯示視窗（要結束請到工作管理員）
+```
+
+- 候選視窗：數字鍵 1-9 或 ↑↓ + Enter 選字，Esc 取消，也可以用滑鼠點。
+- 選取的是中文夾雜亂碼（例如「我朋友叫eji ru8 u/3」）時，只轉換亂碼的部分。
+- 選過的字會記住，和命令列工具共用同一份 `user_dict.json`。
+- 運作方式：模擬 Ctrl+C 複製選取的文字 → 轉換 → 模擬 Ctrl+V 貼回，
+  完成後還原原本的剪貼簿（原本是圖片等非文字內容時無法還原）。
+- 尚未處理：密碼欄位偵測、系統匣圖示、開機自動啟動。
+
 ## 檔案
 
 | 檔案 | 用途 |
 |---|---|
 | `zhuyin_fix.py` | 引擎本體與命令列工具 |
+| `zhuyin_hotkey.py` | Windows 快捷鍵工具 |
 | `zhuyin_dict.json` | 詞庫（由 `build_dict.py` 產生，約 17 萬筆） |
 | `build_dict.py` | 從 McBopomofo 原始資料重建詞庫 |
 | `eval.py` | 測試集與命中率評估 |

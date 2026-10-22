@@ -2,7 +2,6 @@
 
 python eval.py            # 印出命中率與失敗案例
 """
-import sys
 
 from zhuyin_fix import KEYMAP, TONE_KEYS, ZhuyinFixer
 
