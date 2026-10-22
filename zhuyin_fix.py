@@ -54,6 +54,7 @@ class Chunk:
     raw: str                      # 原始按鍵
     readings: list[str] = field(default_factory=list)  # 合法讀音（空 = 不合法）
     reordered: bool = False       # 是否靠調整按鍵順序才變合法
+    fuzzy: bool = False           # 是否靠補打 / 刪掉一個鍵才變合法（例如漏打 ㄨ）
 
     @property
     def valid(self) -> bool:
@@ -160,6 +161,7 @@ class ZhuyinFixer:
     MAX_WORD_LEN = 6              # 詞最長幾個音節
     BEAM = 12                     # 每個位置保留幾條最佳路徑
     REORDER_PENALTY = 2.0         # 調整按鍵順序的懲罰（log 單位）
+    FUZZY_PENALTY = 4.0           # 補打 / 刪除一個鍵的懲罰
     SEGMENT_PENALTY = 2.0         # 每多切一個詞的懲罰，鼓勵使用長詞（由 eval.py 調出）
 
     def __init__(self, dict_path: str | Path | None = None,
@@ -174,7 +176,9 @@ class ZhuyinFixer:
     # ---- 單一音節 ----
 
     @lru_cache(maxsize=4096)
-    def parse_chunk(self, raw: str) -> Chunk:
+    def parse_chunk(self, raw: str, fuzzy: bool = False) -> Chunk:
+        """fuzzy=True 時允許補打一個介音（ㄧㄨㄩ）或刪掉一個多打的鍵。
+        只在手動模式（使用者確定整串是亂碼）啟用，自動偵測不用，以免把英文誤判成注音。"""
         tone_key = raw[-1] if raw and raw[-1] in TONE_KEYS else None
         body = raw[:-1] if tone_key is not None else raw
         if not body or any(c not in KEYMAP for c in body):
@@ -196,10 +200,23 @@ class ZhuyinFixer:
             readings = try_order(fixed)
             if readings:
                 return Chunk(raw, readings, True)
+        if fuzzy:
+            found: list[str] = []
+            # 漏打介音：ㄍㄛ -> ㄍㄨㄛ
+            for medial in "ㄧㄨㄩ":
+                if medial not in syms:
+                    found += try_order(sorted(syms + [medial], key=_slot))
+            # 多打一個鍵：ㄍㄨㄨㄛ -> ㄍㄨㄛ（漏打比多打常見，補打成功就不再試刪除）
+            if not found and len(syms) > 1:
+                for i in range(len(syms)):
+                    found += try_order(syms[:i] + syms[i + 1:])
+            found = list(dict.fromkeys(found))
+            if found:
+                return Chunk(raw, found, fuzzy=True)
         return Chunk(raw)
 
-    def to_chunks(self, keys: str) -> list[Chunk]:
-        return [self.parse_chunk(c) for c in split_chunks(keys.lstrip()) if c != " "]
+    def to_chunks(self, keys: str, fuzzy: bool = False) -> list[Chunk]:
+        return [self.parse_chunk(c, fuzzy) for c in split_chunks(keys.lstrip()) if c != " "]
 
     # ---- 選字（k-best Viterbi + 使用者習慣）----
 
@@ -225,7 +242,8 @@ class ZhuyinFixer:
                     continue
                 span = chunks[start:end]
                 penalty = self.SEGMENT_PENALTY + sum(
-                    self.REORDER_PENALTY for c in span if c.reordered)
+                    self.REORDER_PENALTY for c in span if c.reordered) + sum(
+                    self.FUZZY_PENALTY for c in span if c.fuzzy)
                 for reading in self._span_readings(span):
                     for word, freq in self._entries(reading):
                         base = math.log(freq / self.total) - penalty
@@ -262,7 +280,7 @@ class ZhuyinFixer:
           （像輸入法的「自動學詞」，例如人名「郭家穎」）。
         - 自己輸入的文字（不在候選中）：字數與音節數相同時，整串學成新詞。
         """
-        chunks = self.to_chunks(keys)
+        chunks = self.to_chunks(keys, fuzzy=True)
         if not chunks or not all(c.valid for c in chunks):
             return False
         cands = self.decode_chunks(chunks, k=10)
@@ -313,7 +331,7 @@ class ZhuyinFixer:
 
     def decode(self, keys: str, k: int = 5) -> list[Candidate]:
         """整串都是亂碼時使用（例如使用者選取後按快捷鍵）。"""
-        chunks = self.to_chunks(keys)
+        chunks = self.to_chunks(keys, fuzzy=True)
         if not chunks or not all(c.valid for c in chunks):
             return []
         return self.decode_chunks(chunks, k)
@@ -347,6 +365,30 @@ class ZhuyinFixer:
 # ---------------------------------------------------------------- CLI
 
 
+def _as_zhuyin(raw: str) -> str:
+    return "".join(KEYMAP.get(c, TONE_KEYS.get(c, c)) for c in raw).strip()
+
+
+def show_syllables(engine: ZhuyinFixer, keys: str) -> None:
+    """顯示切出來的音節；自動修正過的加註，無法解析的指出是哪一段。"""
+    chunks = engine.to_chunks(keys, fuzzy=True)
+    parts = []
+    for c in chunks:
+        if not c.valid:
+            parts.append(f"[{c.raw.strip()}?]")
+        elif c.fuzzy or c.reordered:
+            parts.append(f"{'/'.join(c.readings)}(修正自 {_as_zhuyin(c.raw)})")
+        else:
+            parts.append("/".join(c.readings))
+    print("  音節：", " ".join(parts))
+    bad = [c for c in chunks if not c.valid]
+    for c in bad:
+        print(f"  ✗ 無法解析「{c.raw.strip()}」= {_as_zhuyin(c.raw)}，不是合法注音，"
+              "可能打錯了不只一個鍵")
+    if not chunks:
+        print("  ✗ 沒有可轉換的內容")
+
+
 def interactive(engine: ZhuyinFixer) -> None:
     print("輸入亂碼後選數字確認；直接輸入中文可教它新詞；空白行離開。")
     while True:
@@ -354,8 +396,8 @@ def interactive(engine: ZhuyinFixer) -> None:
         if not keys.strip():
             return
         cands = engine.decode(keys, k=9)
+        show_syllables(engine, keys)
         if not cands:
-            print("  無法解析成注音")
             continue
         for n, c in enumerate(cands, 1):
             print(f"  {n}. {c.text}")
@@ -379,9 +421,7 @@ def main(argv: list[str]) -> None:
             print(f"  {r['raw']!r} (信心 {r['confidence']}) -> {', '.join(r['candidates'])}")
         return
     keys = " ".join(argv) if argv else input("亂碼> ")
-    chunks = [engine.parse_chunk(c) for c in split_chunks(keys)]
-    print("音節：", " ".join("/".join(c.readings) or f"[{c.raw}?]" for c in chunks))
-    print("信心：", engine.confidence(chunks))
+    show_syllables(engine, keys)
     for n, c in enumerate(engine.decode(keys), 1):
         print(f"  {n}. {c.text}   ({' | '.join(c.words)})")
 

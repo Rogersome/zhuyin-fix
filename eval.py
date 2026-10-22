@@ -70,6 +70,15 @@ def run(engine, items, label):
     return fails
 
 
+# 漏打或多打一個鍵（手動模式的容錯）：(按鍵, 期望結果, 說明)
+TYPOS = [
+    ("ei ru8 u/3", "郭佳穎", "郭 漏打 ㄨ"),
+    ("v,6vul4", "學校", "學 漏打 ㄩ"),
+    ("v,4vu,4", "謝謝", "謝 漏打 ㄧ"),
+    ("ejji ru8 u/3", "郭佳穎", "郭 多打一個 ㄨ"),
+    ("su3ccl3", "你好", "好 多打一個 ㄏ"),
+]
+
 FALSE_POSITIVES = """hello world, see you tomorrow | ok | lol | my password is abc123 |
 https://www.google.com | I love you | iPhone 15 | test@gmail.com | 2026-10-22 |
 u3 | yes | git commit -m fix""".split("|")
@@ -87,6 +96,13 @@ def main():
             fp += 1
             fails.append(("[誤判]", t, [fixed]))
     print(f"誤判（英文被改掉）: {fp}/{len(FALSE_POSITIVES)}")
+    ok = 0
+    for keys, want, note in TYPOS:
+        got = [c.text for c in engine.decode(keys)]
+        ok += bool(got) and got[0] == want
+        if not got or got[0] != want:
+            fails.append((f"[容錯] {want}（{note}）", keys, got[:3]))
+    print(f"打錯一鍵容錯: 第一候選 {ok}/{len(TYPOS)}")
     for s, k, c in fails:
         print(f"  ✗ {s}  {k!r} -> {c}")
 
